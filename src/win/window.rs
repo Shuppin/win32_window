@@ -1,21 +1,16 @@
 use windows::{
-    core::*,              // Core utilities from the Windows API (like HRESULTs and Results).
-    Win32::Foundation::*, // Fundamental Windows types like HWND, LRESULT, WPARAM, LPARAM.
-    Win32::Graphics::Gdi::ValidateRect, // GDI (Graphics Device Interface) for operations like validating window rects.
-    Win32::System::LibraryLoader::GetModuleHandleA, // Function to get the module handle for the current instance.
-    Win32::UI::WindowsAndMessaging::*, // Window messaging, window creation, and input handling functions.
+    core::*, // Core utilities from the Windows API (like HRESULTs and Results).
+    Win32::{
+        Foundation::*,
+        Graphics::{Gdi::ValidateRect, OpenGL::*},
+        System::LibraryLoader::*,
+        UI::WindowsAndMessaging::*,
+    }, // Window messaging, window creation, and input handling functions.
 };
 
-use crate::error::{PalmError, PalmErrorKind, PalmResult};
+use crate::{error::PalmResult, win::IntoPalmError};
 
-impl Into<PalmError> for windows::core::Error {
-    fn into(self) -> PalmError {
-        match WIN32_ERROR(self.code().0 as u32) {
-            ERROR_OUTOFMEMORY | ERROR_NOT_ENOUGH_MEMORY => PalmErrorKind::NotEnoughMemory.into(),
-            _ => panic!("{}", self.message()),
-        }
-    }
-}
+use super::gl::{cleanup_opengl, init_opengl};
 
 /// A builder for creating a window with customizable properties.
 pub struct WindowBuilder {
@@ -99,7 +94,7 @@ pub fn run_loop(window_config: WindowBuilder) -> PalmResult<()> {
     debug_assert!(atom != 0);
 
     // Create a window based on the registered window class.
-    unsafe {
+    let hwnd = unsafe {
         CreateWindowExA(
             WINDOW_EX_STYLE::default(), // Extended window style (default).
             window_class,               // The class name.
@@ -114,17 +109,55 @@ pub fn run_loop(window_config: WindowBuilder) -> PalmResult<()> {
             instance,      // Instance handle.
             None,          // No additional parameters.
         )
-        .map_err(|e| e.into())?;
     }
+    .with_err_msg("Failed to create window")?;
 
-    // Define a message structure to store messages from the message queue.
-    let mut message = MSG::default();
+    // // Define a message structure to store messages from the message queue.
+    // let mut message = MSG::default();
+
+    // // Message loop: retrieves messages from the queue and dispatches them to the window procedure.
+    // while unsafe { GetMessageA(&mut message, None, 0, 0).into() } {
+    //     // Dispatch the message to the appropriate window procedure (wndproc in this case).
+    //     unsafe {
+    //         _ = TranslateMessage(&message);
+    //         DispatchMessageA(&message)
+    //     };
+    // }
+
+    run_main_loop(hwnd)?;
+
+    Ok(())
+}
+
+fn run_main_loop(hwnd: HWND) -> PalmResult<()> {
+    // Initialise OpenGL
+    let (hglrc, hdc) = init_opengl(hwnd)?;
+
+    // Main loop
+    let mut msg = MSG::default();
 
     // Message loop: retrieves messages from the queue and dispatches them to the window procedure.
-    while unsafe { GetMessageA(&mut message, None, 0, 0).into() } {
-        // Dispatch the message to the appropriate window procedure (wndproc in this case).
-        unsafe { DispatchMessageA(&message) };
+    while unsafe { GetMessageA(&mut msg, None, 0, 0).into() } {
+        unsafe {
+            _ = TranslateMessage(&msg);
+            // Dispatch the message to the appropriate window procedure (wndproc in this case).
+            DispatchMessageA(&msg);
+        }
+
+        // Clear the screen
+        unsafe {
+            glClearColor(1.0, 0.1, 0.1, 1.0);
+            glClear(GL_COLOR_BUFFER_BIT);
+        }
+
+        // Swap buffers
+        unsafe {
+            // TODO: This panics upon window closure, find out why
+            SwapBuffers(hdc).map_palm_err()?;
+        }
     }
+
+    cleanup_opengl(hwnd, hglrc, hdc)?;
 
     Ok(())
 }

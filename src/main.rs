@@ -1,7 +1,7 @@
-use window::WindowBuilder;
+use win::window::WindowBuilder;
 
 mod error;
-mod window;
+mod win;
 
 fn main() {
     WindowBuilder::default()
