@@ -6,7 +6,7 @@ use crate::error::PalmResult;
 
 use super::IntoPalmError;
 
-pub(crate) fn init_opengl(hwnd: HWND) -> PalmResult<(HGLRC, HDC)> {
+pub fn init_opengl(hwnd: HWND) -> PalmResult<(HGLRC, HDC)> {
     // Get device context
     let hdc = unsafe { GetDC(hwnd) };
 
@@ -39,11 +39,29 @@ pub(crate) fn init_opengl(hwnd: HWND) -> PalmResult<(HGLRC, HDC)> {
     Ok((hglrc, hdc))
 }
 
-pub(crate) fn cleanup_opengl(hwnd: HWND, hglrc: HGLRC, hdc: HDC) -> PalmResult<()> {
+pub fn cleanup_opengl(hwnd: HWND, hglrc: HGLRC, hdc: HDC) -> PalmResult<()> {
     unsafe {
         wglMakeCurrent(hdc, None).map_palm_err()?;
         wglDeleteContext(hglrc).map_palm_err()?;
         ReleaseDC(hwnd, hdc);
     };
+    Ok(())
+}
+
+pub fn temp_draw(hwnd: HWND) -> PalmResult<()> {
+    let hdc = unsafe { GetDC(hwnd) };
+
+    // Clear the screen
+    unsafe {
+        glClearColor(1.0, 0.1, 0.1, 1.0);
+        glClear(GL_COLOR_BUFFER_BIT);
+    }
+
+    // Swap buffers
+    unsafe {
+        // TODO: This panics upon window closure, find out why
+        SwapBuffers(hdc).map_palm_err()?;
+    }
+
     Ok(())
 }

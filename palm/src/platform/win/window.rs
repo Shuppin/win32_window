@@ -1,61 +1,17 @@
-use windows::{
-    core::*, // Core utilities from the Windows API (like HRESULTs and Results).
-    Win32::{
-        Foundation::*,
-        Graphics::{Gdi::ValidateRect, OpenGL::*},
-        System::LibraryLoader::*,
-        UI::WindowsAndMessaging::*,
-    }, // Window messaging, window creation, and input handling functions.
-};
+use windows::core::*; // Core utilities from the Windows API (like HRESULTs and Results).
+use windows::Win32::Foundation::*;
+use windows::Win32::Graphics::Gdi::*;
+use windows::Win32::System::LibraryLoader::*;
+use windows::Win32::UI::WindowsAndMessaging::*;
+// ^ Window messaging, window creation, and input handling functions.
 
-use crate::{error::PalmResult, win::IntoPalmError};
+use crate::error::PalmResult;
+use crate::window::WindowAttributes;
 
-use super::gl::{cleanup_opengl, init_opengl};
+use super::gl::{cleanup_opengl, init_opengl, temp_draw};
+use super::IntoPalmError;
 
-/// A builder for creating a window with customizable properties.
-pub struct WindowBuilder {
-    title: String,
-}
-
-impl Default for WindowBuilder {
-    /// Creates a new instance of `WindowBuilder` with default settings.
-    ///
-    /// The default title is set to "Palm app".
-    fn default() -> Self {
-        Self {
-            title: "Palm app".to_string(),
-        }
-    }
-}
-
-impl WindowBuilder {
-    /// Builds and runs the window, returning a result indicating success or failure.
-    ///
-    /// This method initiates the event loop associated with the window.
-    ///
-    /// # Returns
-    ///
-    /// A `PalmResult<()>` indicating the outcome of the operation.
-    pub fn build_and_run(self) -> PalmResult<()> {
-        run_loop(self)
-    }
-
-    /// Sets the title of the window.
-    ///
-    /// # Arguments
-    ///
-    /// * `title` - A string slice that holds the new title for the window.
-    ///
-    /// # Returns
-    ///
-    /// A new instance of `WindowBuilder` with the updated title.
-    pub fn with_title(mut self, title: &str) -> Self {
-        self.title = title.to_string();
-        self
-    }
-}
-
-pub fn run_loop(window_config: WindowBuilder) -> PalmResult<()> {
+pub fn run_window_loop(window_config: WindowAttributes) -> PalmResult<()> {
     // Get the handle of the current instance (HINSTANCE).
     // This is required when registering the window class and creating windows.
     // Safety: This function almost never fails when `None` is passed,
@@ -112,18 +68,6 @@ pub fn run_loop(window_config: WindowBuilder) -> PalmResult<()> {
     }
     .with_err_msg("Failed to create window")?;
 
-    // // Define a message structure to store messages from the message queue.
-    // let mut message = MSG::default();
-
-    // // Message loop: retrieves messages from the queue and dispatches them to the window procedure.
-    // while unsafe { GetMessageA(&mut message, None, 0, 0).into() } {
-    //     // Dispatch the message to the appropriate window procedure (wndproc in this case).
-    //     unsafe {
-    //         _ = TranslateMessage(&message);
-    //         DispatchMessageA(&message)
-    //     };
-    // }
-
     run_main_loop(hwnd)?;
 
     Ok(())
@@ -133,7 +77,6 @@ fn run_main_loop(hwnd: HWND) -> PalmResult<()> {
     // Initialise OpenGL
     let (hglrc, hdc) = init_opengl(hwnd)?;
 
-    // Main loop
     let mut msg = MSG::default();
 
     // Message loop: retrieves messages from the queue and dispatches them to the window procedure.
@@ -142,18 +85,6 @@ fn run_main_loop(hwnd: HWND) -> PalmResult<()> {
             _ = TranslateMessage(&msg);
             // Dispatch the message to the appropriate window procedure (wndproc in this case).
             DispatchMessageA(&msg);
-        }
-
-        // Clear the screen
-        unsafe {
-            glClearColor(1.0, 0.1, 0.1, 1.0);
-            glClear(GL_COLOR_BUFFER_BIT);
-        }
-
-        // Swap buffers
-        unsafe {
-            // TODO: This panics upon window closure, find out why
-            SwapBuffers(hdc).map_palm_err()?;
         }
     }
 
@@ -168,6 +99,7 @@ extern "system" fn wndproc(window: HWND, message: u32, wparam: WPARAM, lparam: L
         // Handle the WM_PAINT message, which is sent when the window needs to be repainted.
         WM_PAINT => {
             println!("WM_PAINT");
+            temp_draw(window).unwrap();
             // Validate the client area to indicate that it has been repainted (no need to redraw).
             _ = unsafe { ValidateRect(window, None) };
             // Return 0 to indicate the message has been processed.
