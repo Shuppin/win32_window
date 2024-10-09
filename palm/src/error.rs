@@ -36,6 +36,12 @@ impl Into<PalmError> for PalmErrorKind {
 }
 
 /// Represents an error that can occur within the Palm application, including its kind and a message.
+///
+/// # Example
+/// ```rust
+/// use palm::error::{PalmError, PalmErrorKind};
+/// let error: PalmError = PalmErrorKind::NotEnoughMemory.into();
+/// ```
 #[derive(Debug)]
 pub struct PalmError {
     kind: PalmErrorKind,
