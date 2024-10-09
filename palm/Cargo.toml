@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1.0.89"
+skia-safe = { version = "0.75.0", features = ["gl"] }
 thiserror = "1.0.64"
 
 [dependencies.windows]

@@ -1,6 +1,7 @@
 use windows::Win32::Foundation::*;
 use windows::Win32::Graphics::Gdi::*;
 use windows::Win32::Graphics::OpenGL::*;
+use windows::Win32::UI::WindowsAndMessaging::GetClientRect;
 
 use crate::error::PalmResult;
 
@@ -48,20 +49,65 @@ pub fn cleanup_opengl(hwnd: HWND, hglrc: HGLRC, hdc: HDC) -> PalmResult<()> {
     Ok(())
 }
 
-pub fn temp_draw(hwnd: HWND) -> PalmResult<()> {
+pub fn init_skia(hwnd: HWND) -> PalmResult<(skia_safe::Surface, skia_safe::gpu::DirectContext)> {
+    // Init Skia context for OpenGL rendering
+    let interface = skia_safe::gpu::gl::Interface::new_native().unwrap();
+    let mut gr_context = skia_safe::gpu::direct_contexts::make_gl(interface, None).unwrap();
+
+    // Setup skia surface
+    let fb_info = skia_safe::gpu::gl::FramebufferInfo {
+        fboid: 0, // Bind to the window's framebuffer (0)
+        format: skia_safe::gpu::gl::Format::RGBA8.into(),
+        ..Default::default()
+    };
+
+    // TODO: Find out how to actually retrieve these values from windows
+    let sample_count = 0; // Default to zero for now.
+    let stencil_size = 0;
+
+    let surface = {
+        let size = get_client_size(hwnd)?;
+        let backend_render_target = skia_safe::gpu::backend_render_targets::make_gl(
+            size,
+            sample_count,
+            stencil_size,
+            fb_info,
+        );
+        skia_safe::gpu::surfaces::wrap_backend_render_target(
+            &mut gr_context,
+            &backend_render_target,
+            skia_safe::gpu::SurfaceOrigin::BottomLeft,
+            skia_safe::ColorType::RGBA8888,
+            None,
+            None,
+        )
+        .expect("failed to create skia surface")
+    };
+
+    Ok((surface, gr_context))
+}
+
+pub fn gl_swap_buffers(hwnd: HWND) -> PalmResult<()> {
     let hdc = unsafe { GetDC(hwnd) };
 
-    // Clear the screen
     unsafe {
-        glClearColor(1.0, 0.1, 0.1, 1.0);
-        glClear(GL_COLOR_BUFFER_BIT);
-    }
-
-    // Swap buffers
-    unsafe {
-        // TODO: This panics upon window closure, find out why
         SwapBuffers(hdc).map_palm_err()?;
     }
 
     Ok(())
+}
+
+pub fn clear_screen(red: f32, green: f32, blue: f32, alpha: f32) {
+    unsafe {
+        glClearColor(red, green, blue, alpha);
+        glClear(GL_COLOR_BUFFER_BIT);
+    }
+}
+
+fn get_client_size(hwnd: HWND) -> PalmResult<(i32, i32)> {
+    let mut rect = RECT::default();
+    unsafe { GetClientRect(hwnd, &mut rect) }.map_palm_err()?;
+    let width = rect.right - rect.left;
+    let height = rect.bottom - rect.top;
+    Ok((width, height))
 }

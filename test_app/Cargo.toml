@@ -6,3 +6,5 @@ default-run = "test_app"
 
 [dependencies]
 palm = { version = "0.1.0", path = "../palm" }
+# for some reason skia-safe 0.78 generate linker errors
+skia-safe = { version = "0.75.0", features = ["gl"] }
