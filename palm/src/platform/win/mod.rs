@@ -43,3 +43,11 @@ impl<T> IntoPalmError<T> for windows::core::Result<T> {
         )
     }
 }
+
+fn hiword(x: LPARAM) -> u16 {
+    ((x.0 as u32 >> 16) & 0xffff) as u16
+}
+
+fn loword(x: LPARAM) -> u16 {
+    ((x.0 as u32) & 0xffff) as u16
+}

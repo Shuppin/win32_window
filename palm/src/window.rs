@@ -3,7 +3,7 @@
 //! This module provides the functionality to create and manage a window for the application.
 //! It is platform-agnostic in terms of configuration but platform-specific in execution,
 //! currently supporting only Windows platforms.
-use crate::{error::PalmResult, renderer::Renderer};
+use crate::{error::PalmResult, ui::component::Component};
 
 /// Various platform-agnostic attributes to config the behaviour and appearance of the window
 pub struct WindowAttributes {
@@ -52,10 +52,13 @@ impl Default for WindowAttributes {
 /// # Panics
 ///
 /// This function will panic on non-Windows platforms.
-pub fn run_window_loop<R: Renderer>(attrs: WindowAttributes, renderer: R) -> PalmResult<()> {
+pub fn run_window_loop(
+    attrs: WindowAttributes,
+    components: Vec<Box<dyn Component>>,
+) -> PalmResult<()> {
     #[cfg(target_os = "windows")]
     {
-        crate::platform::win::window::run_window_loop(attrs, renderer)
+        crate::platform::win::window::run_window_loop(attrs, components)
     }
     #[cfg(not(target_os = "windows"))]
     {

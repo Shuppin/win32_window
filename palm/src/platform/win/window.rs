@@ -6,22 +6,24 @@ use windows::Win32::UI::WindowsAndMessaging::*;
 // ^ Window messaging, window creation, and input handling functions.
 
 use crate::error::PalmResult;
-use crate::platform::win::gl::clear_screen;
-use crate::renderer::Renderer;
+use crate::platform::win::gl::{clear_screen, get_client_size};
+use crate::platform::win::{hiword, loword};
+use crate::renderer::skia::{create_skia_gr_context, create_skia_surface};
+use crate::ui::component::Component;
 use crate::window::WindowAttributes;
 
-use super::gl::{cleanup_opengl, gl_swap_buffers, init_opengl, init_skia};
+use super::gl::{cleanup_opengl, gl_swap_buffers, init_opengl};
 use super::IntoPalmError;
 
-struct WindowState<R: Renderer> {
+struct WindowState {
     sk_surface: skia_safe::Surface,
-    sk_context: skia_safe::gpu::DirectContext,
-    renderer: R,
+    sk_gr_context: skia_safe::gpu::DirectContext,
+    components: Vec<Box<dyn Component>>,
 }
 
-pub fn run_window_loop<R: Renderer>(
+pub fn run_window_loop(
     window_config: WindowAttributes,
-    renderer: R,
+    components: Vec<Box<dyn Component>>,
 ) -> PalmResult<()> {
     // Get the handle of the current instance (HINSTANCE).
     // This is required when registering the window class and creating windows.
@@ -50,7 +52,7 @@ pub fn run_window_loop<R: Renderer>(
         // Set the window class style flags, allowing redraw on horizontal and vertical resize.
         style: CS_HREDRAW | CS_VREDRAW,
         // Specify the window procedure function to handle window messages.
-        lpfnWndProc: Some(wndproc::<R>),
+        lpfnWndProc: Some(wndproc),
         // Set default values for the remaining fields.
         ..Default::default()
     };
@@ -81,12 +83,13 @@ pub fn run_window_loop<R: Renderer>(
 
     let (hglrc, hdc) = init_opengl(hwnd)?;
 
-    let (sk_surface, sk_context) = init_skia(hwnd)?;
+    let mut sk_gr_context = create_skia_gr_context()?;
+    let sk_surface = create_skia_surface(get_client_size(hwnd)?, &mut sk_gr_context);
 
     let window_state = Box::new(WindowState {
         sk_surface,
-        sk_context,
-        renderer,
+        sk_gr_context,
+        components,
     });
 
     unsafe { SetWindowLongPtrW(hwnd, GWLP_USERDATA, Box::into_raw(window_state) as isize) };
@@ -119,26 +122,20 @@ fn run_main_loop() {
 }
 
 // The window procedure function. It processes messages sent to the window.
-extern "system" fn wndproc<R: Renderer>(
-    window: HWND,
-    message: u32,
-    wparam: WPARAM,
-    lparam: LPARAM,
-) -> LRESULT {
+extern "system" fn wndproc(window: HWND, message: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     match message {
         // Handle the WM_PAINT message, which is sent when the window needs to be repainted.
         WM_PAINT => {
-            println!("WM_PAINT");
             // Access the window state
             let window_state_ptr =
-                unsafe { GetWindowLongPtrW(window, GWLP_USERDATA) } as *mut WindowState<R>;
+                unsafe { GetWindowLongPtrW(window, GWLP_USERDATA) } as *mut WindowState;
             if !window_state_ptr.is_null() {
                 let window_state = unsafe { &mut *window_state_ptr };
-                // Invoke the render callback
-                window_state
-                    .renderer
-                    .render(window_state.sk_surface.canvas());
-                window_state.sk_context.flush_and_submit();
+                let canvas = window_state.sk_surface.canvas();
+                for component in &window_state.components {
+                    component.render(canvas);
+                }
+                window_state.sk_gr_context.flush_and_submit();
                 gl_swap_buffers(window).unwrap();
             }
             // Validate the client area to indicate that it has been repainted (no need to redraw).
@@ -147,13 +144,27 @@ extern "system" fn wndproc<R: Renderer>(
             LRESULT(0)
         }
 
+        WM_SIZE => {
+            let w = loword(lparam);
+            let h = hiword(lparam);
+
+            let window_state_ptr =
+                unsafe { GetWindowLongPtrW(window, GWLP_USERDATA) } as *mut WindowState;
+            if !window_state_ptr.is_null() {
+                let window_state = unsafe { &mut *window_state_ptr };
+                // Recreate the skia surface with the new size
+                window_state.sk_surface =
+                    create_skia_surface((w as i32, h as i32), &mut window_state.sk_gr_context)
+            }
+
+            LRESULT(0)
+        }
+
         // Handle the WM_DESTROY message, which is sent when the window is being destroyed.
         WM_DESTROY => {
-            println!("WM_DESTROY");
-
             // When the window is being destroyed, clean up the state.
             let window_state_ptr =
-                unsafe { GetWindowLongPtrW(window, GWLP_USERDATA) } as *mut WindowState<R>;
+                unsafe { GetWindowLongPtrW(window, GWLP_USERDATA) } as *mut WindowState;
             if !window_state_ptr.is_null() {
                 _ = unsafe { Box::from_raw(window_state_ptr) }; // This will deallocate the struct.
             }
